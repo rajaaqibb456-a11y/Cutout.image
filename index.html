@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cutout AI – Background Remover</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<meta name="theme-color" content="#0f766e">
+<style>
+:root{color-scheme:light;--bg:#f3f5f7;--panel:#fff;--ink:#0f1b2d;--muted:#5f6f83;--line:#dde3ea;--acc:#0f766e;--accink:#fff;--soft:#e6f3f1;--k1:#e9edf1;--k2:#fff}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0c131c;--panel:#142030;--ink:#e8eef5;--muted:#93a4b8;--line:#243448;--acc:#2dd4bf;--accink:#06201c;--soft:#10312f;--k1:#1c2a3a;--k2:#23344a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{max-width:1100px;margin:0 auto;padding:16px;font-weight:700;font-size:1.2rem;display:flex;gap:10px;align-items:center}
+header i{width:26px;height:26px;border-radius:8px;background:var(--acc);display:inline-block}
+main{max-width:1100px;margin:0 auto;padding:0 16px 40px}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:10px;padding:10px 16px;font-weight:600}
+button:hover{border-color:var(--acc)}button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.pri{background:var(--acc);color:var(--accink);border-color:var(--acc)}
+[aria-pressed="true"]{background:var(--soft);border-color:var(--acc);color:var(--acc)}
+#hero{background:var(--panel);border:2px dashed var(--line);border-radius:20px;padding:56px 20px;text-align:center}
+#hero.drag{border-color:var(--acc);background:var(--soft)}
+#hero h1{margin:0 0 8px;font-size:2rem;letter-spacing:-.02em}
+#hero p{margin:0 auto 20px;color:var(--muted);max-width:44ch}
+.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+#work{display:grid;gap:16px}
+@media (min-width:860px){#work{grid-template-columns:1fr 320px;align-items:start}}
+#stage{position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:repeating-conic-gradient(var(--k1) 0 25%,var(--k2) 0 50%) 0 0/20px 20px}
+#stage canvas{display:block;width:100%;height:auto;max-height:75vh;object-fit:contain;margin:0 auto}
+#oc{position:absolute;inset:0;margin:auto;pointer-events:none}
+#busy{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:color-mix(in srgb,var(--bg) 80%,transparent);font-weight:600}
+.bar{width:60%;max-width:260px;height:8px;border-radius:99px;background:var(--line);overflow:hidden}.bar b{display:block;height:100%;width:0;background:var(--acc);transition:width .2s}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.panel h3{margin:0 0 10px;font-size:.95rem}
+.chips{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+input[type=color]{width:44px;height:38px;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+input[type=range]{width:100%;accent-color:var(--acc)}
+.hint{color:var(--muted);font-size:.85rem}
+#err{color:#c0392b;margin-top:12px;font-weight:600}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header><i></i>Cutout AI</header>
+<main>
+ <section id="hero">
+  <h1>Remove image background with AI</h1>
+  <p>Drop a photo here. The AI finds the person or object and removes the rest in seconds. Photos stay on your device.</p>
+  <div class="row"><button class="pri" id="up">Upload photo</button><button id="cam">Use camera</button></div>
+  <div id="err" hidden></div>
+  <p class="hint" id="off" hidden></p>
+ </section>
+ <section id="work" hidden>
+  <div>
+   <div id="stage"><canvas id="v"></canvas><canvas id="oc"></canvas><div id="busy"><span id="bt">Loading AI model…</span><div class="bar"><b id="bp"></b></div></div></div>
+   <p class="hint">Move the slider to compare before and after.</p>
+   <input type="range" id="cmp" min="0" max="100" value="0" aria-label="Compare before and after">
+  </div>
+  <aside>
+   <div class="panel">
+    <h3>Background</h3>
+    <div class="chips">
+     <button data-bg="none" aria-pressed="true">Transparent</button>
+     <button data-bg="color" aria-pressed="false">Color</button>
+     <button data-bg="image" aria-pressed="false">Image</button>
+     <input type="color" id="c1" value="#ffffff" aria-label="Background color">
+    </div>
+   </div>
+   <div class="panel">
+    <div class="chips"><button class="pri" id="dl" style="flex:1">Download PNG</button></div>
+    <div class="chips" style="margin-top:8px"><button id="new" style="flex:1">New photo</button></div>
+   </div>
+  </aside>
+ </section>
+</main>
+<input type="file" id="f1" accept="image/*" hidden>
+<input type="file" id="f2" accept="image/*" capture="environment" hidden>
+<input type="file" id="f3" accept="image/*" hidden>
+<script type="module">
+const $=s=>document.querySelector(s);
+const v=$('#v'),vc=v.getContext('2d'),oc=$('#oc'),occ=oc.getContext('2d');
+let fg=null,orig=null,name='photo',bg={t:'none',img:null},lib=null;
+
+async function loadLib(){
+ if(!lib)lib=await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.5/+esm');
+ return lib}
+function draw(){
+ if(!fg)return;const W=fg.width,H=fg.height;
+ if(v.width!==W||v.height!==H){v.width=oc.width=W;v.height=oc.height=H}
+ vc.clearRect(0,0,W,H);
+ if(bg.t==='color'){vc.fillStyle=$('#c1').value;vc.fillRect(0,0,W,H)}
+ else if(bg.t==='image'&&bg.img){const s=Math.max(W/bg.img.width,H/bg.img.height);vc.drawImage(bg.img,(W-bg.img.width*s)/2,(H-bg.img.height*s)/2,bg.img.width*s,bg.img.height*s)}
+ vc.drawImage(fg,0,0);
+ occ.clearRect(0,0,W,H);occ.drawImage(orig,0,0,W,H);
+ oc.style.clipPath=`inset(0 ${100-$('#cmp').value}% 0 0)`}
+async function run(file){
+ if(!file||!file.type.startsWith('image/'))return;
+ $('#err').hidden=true;name=file.name.replace(/\.[^.]+$/,'')||'photo';
+ $('#hero').hidden=true;$('#work').hidden=false;$('#busy').hidden=false;
+ $('#bp').style.width='0';$('#bt').textContent='Loading AI model…';
+ try{
+  orig=await createImageBitmap(file,{imageOrientation:'from-image'});
+  const {removeBackground}=await loadLib();
+  const MAX=1024,sc=Math.min(1,MAX/Math.max(orig.width,orig.height));
+  const sm=document.createElement('canvas');sm.width=Math.round(orig.width*sc);sm.height=Math.round(orig.height*sc);
+  sm.getContext('2d').drawImage(orig,0,0,sm.width,sm.height);
+  const input=await new Promise(r=>sm.toBlob(r,'image/jpeg',.92));
+  const go=device=>removeBackground(input,{
+   model:'isnet_quint8',device,
+   output:{format:'image/png'},
+   progress:(key,cur,total)=>{const p=total?Math.round(cur/total*100):0;
+    $('#bt').textContent=key.startsWith('fetch')?`Downloading AI model… ${p}%`:'Removing background…';$('#bp').style.width=p+'%'}});
+  let blob;try{blob=await go('gpu')}catch(g){console.warn('GPU failed, using CPU',g);blob=await go('cpu')}
+  fg=await createImageBitmap(blob);$('#cmp').value=0;$('#busy').hidden=true;draw();offlineNote();
+ }catch(e){
+  console.error(e);$('#work').hidden=true;$('#hero').hidden=false;
+  $('#err').textContent='Could not remove the background. Check your internet connection (the AI model downloads once) and try again.';$('#err').hidden=false}}
+function offlineNote(){
+ try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
+ const el=$('#off');el.hidden=false;
+ el.textContent=('serviceWorker' in navigator&&navigator.serviceWorker.controller)?'Offline ready: this app now works without internet.':'Reload this page once to turn on offline mode.'}
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW',e));
+$('#up').onclick=$('#new').onclick=()=>$('#f1').click();$('#cam').onclick=()=>$('#f2').click();
+$('#f1').onchange=$('#f2').onchange=e=>{run(e.target.files[0]);e.target.value=''};
+addEventListener('dragover',e=>{e.preventDefault();$('#hero').classList.add('drag')});
+addEventListener('dragleave',()=>$('#hero').classList.remove('drag'));
+addEventListener('drop',e=>{e.preventDefault();$('#hero').classList.remove('drag');run(e.dataTransfer.files[0])});
+document.querySelectorAll('[data-bg]').forEach(b=>b.onclick=()=>{
+ if(b.dataset.bg==='image'){$('#f3').click();return}
+ bg.t=b.dataset.bg;document.querySelectorAll('[data-bg]').forEach(x=>x.setAttribute('aria-pressed',x===b));draw()});
+$('#f3').onchange=async e=>{const f=e.target.files[0];if(!f)return;bg.img=await createImageBitmap(f);bg.t='image';
+ document.querySelectorAll('[data-bg]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.bg==='image'));draw();e.target.value=''};
+$('#c1').oninput=()=>{if(bg.t==='none'){bg.t='color';document.querySelectorAll('[data-bg]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.bg==='color'))}draw()};
+$('#cmp').oninput=draw;
+$('#dl').onclick=()=>v.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name+'-cutout.png';a.click()},'image/png');
+</script>
+</body>
+</html>

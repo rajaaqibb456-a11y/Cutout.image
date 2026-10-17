@@ -1,0 +1,1 @@
+{"name":"Cutout AI","short_name":"Cutout","description":"AI background remover that works offline","start_url":"./index.html","scope":"./","display":"standalone","background_color":"#0c131c","theme_color":"#0f766e","icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
